@@ -21,46 +21,35 @@ To Do:
 from scipy import optimize
 
 
-def fun(c, df):
-    
-    df1 = df.copy()
-    df1['subtr'] = df1[df1.columns[2]] - c*df1[df1.columns[1]]
-
-    # orig 2500 - 1720,new 2200, 1710
-    df2 = df1[(df1[df1.columns[0]] < 2200) & (df1[df1.columns[0]] > 1710)]
-
-    # minimize impact of noise
-    df3 = df2['subtr'].rolling(min_periods=1, center=True, window=12).mean()
-    
-    return abs(df3.max()-df3.min())
-
-
-def get_constant(df):
+def find_buffer_subtraction_constant(df):
     """ Returns the constant to use for the buffer signal subtraction
     """
+    def fun(c, dataframe):
+        df1 = dataframe.copy()
+        df1['subtr'] = df1[df1.columns[2]] - c * df1[df1.columns[1]]
+        # orig 2500 - 1720,new 2200, 1710
+        df2 = df1[(df1[df1.columns[0]] < 2200) & (df1[df1.columns[0]] > 1710)]
+        # minimize impact of noise
+        df3 = df2['subtr'].rolling(min_periods=1, center=True,
+                                   window=12).mean()
+        return abs(df3.max() - df3.min())
 
     min_params = optimize.minimize(fun, 0.99, args=df)
-    d = min_params.x
-    print('buffer subtraction factor = ', d)
-    result = df[df.columns[2]] - d*df[df.columns[1]]
-    return result
+    subtraction_constant = min_params.x
+    print('buffer subtraction factor = ', subtraction_constant)
+    return subtraction_constant
 
 
-def buffer_subtract(df):
+def buffer_subtract(df, constant=find_buffer_subtraction_constant):
     """ Updates the DataFrame to have subtracted signal data
     """
-    result = get_constant(df)
+    if callable(constant):
+        scaling_constant = constant(df)
+    else:
+        scaling_constant = constant
+    result = df[df.columns[2]] - scaling_constant * df[df.columns[1]]
     df[df.columns[2] + '_subtracted'] = result
     df1 = df[(df[df.columns[0]] > 1729) & (df[df.columns[0]] < 1731)]
     baseline_value = df1[df1.columns[3]].values[0]
     df[df.columns[3]] = result - baseline_value
-    return df
-
-
-def crop(df):
-    """ Returns a DataFrame with only the data in the frequency range
-    [1705-1600]cm-1
-    """
-    df = df[(df[df.columns[0]] < 1706) & (df[df.columns[0]] > 1599)]
-    df.reset_index(drop=True, inplace=True)
     return df
