@@ -454,7 +454,7 @@ def secondary_structure(areas, peaks):
     """
 
     # check area length
-    if not len(areas)==len(peaks['means']):
+    if not len(areas) == len(peaks['means']):
         raise ValueError('Area definitions do not match the number of peak'
                          'definitions')
     structures = {i: 0 for i in set(peaks['assignments'])}
