@@ -17,39 +17,131 @@ To Do:
   are present/slight changes in cell pathlength (peak area based normalization,
   with/without band narrowing, baseline correction, etc.)
 """
-
+import pandas as pd
+import numpy as np
 from scipy import optimize
 
 
-def find_buffer_subtraction_constant(df):
+WINDOW_SIZE = 12
+WINDOW_MIN = 1710
+WINDOW_MAX = 2200
+MIN_PERIODS = 1
+
+
+def find_buffer_subtraction_constant(df, sample, buffer, **params):
     """ Returns the constant to use for the buffer signal subtraction
+
+    Parameters
+    ----------
+    df : Dataframe
+        Dataframe containing both the sample and buffer spectra
+
+    sample : String
+        Column name in the dataframe for the sample spectra
+
+    buffer : String
+        Column name in the dataframe for the buffer spectra
+
+    params : Optional
+        Parameters for the buffer subtraction optimization.
+            * `window_min` specifies the minimum wavenumber to be used for
+            optimization
+            * `window_max` specifies the maximum wavenumber to be used for
+            optimization
+            * `rolling_window` specifies the size of the de-noising window
+            * `min_period` specifies the minimum number of observations in the
+            de-noising window to have a value
     """
-    def fun(c, dataframe):
-        df1 = dataframe.copy()
-        df1['subtr'] = df1[df1.columns[2]] - c * df1[df1.columns[1]]
-        # orig 2500 - 1720,new 2200, 1710
-        df2 = df1[(df1[df1.columns[0]] < 2200) & (df1[df1.columns[0]] > 1710)]
+
+    # Get parameters for optimization function
+    frequency_col = params.pop('freq', 'freq')
+    window = params.pop('rolling_window', WINDOW_SIZE)
+    window_min = params.pop('window_min', WINDOW_MIN)
+    window_max = params.pop('window_max', WINDOW_MAX)
+    min_periods = params.pop('min_periods', MIN_PERIODS)
+
+    def func(c, dataframe):
+        """ Optimization function for buffer subtraction
+
+        Takes a constant `c` and dataframe, and minimizes the maximum range
+        across the specified window range. A rolling average is applied to
+        reduce the impact of noise.
+        """
+        sub_series = dataframe[sample] - c * dataframe[buffer]
+        trunc = sub_series[(dataframe[frequency_col] < window_max) &
+                           (dataframe[frequency_col] > window_min)]
         # minimize impact of noise
-        df3 = df2['subtr'].rolling(min_periods=1, center=True,
-                                   window=12).mean()
-        return abs(df3.max() - df3.min())
+        smoothed = trunc.rolling(min_periods=min_periods, center=True,
+                                 window=window).mean()
+        return abs(smoothed.max() - smoothed.min())
 
-    min_params = optimize.minimize(fun, 0.99, args=df)
-    subtraction_constant = min_params.x
-    print('buffer subtraction factor = ', subtraction_constant)
-    return subtraction_constant
+    res = optimize.minimize(func, 0.99, args=df)
+    return res.x
 
 
-def buffer_subtract(df, constant=find_buffer_subtraction_constant):
-    """ Updates the DataFrame to have subtracted signal data
+def buffer_subtract(df, buffer=1, baseline_min=1729, baseline_max=1731,
+                    freq='freq', constant=find_buffer_subtraction_constant,
+                    constant_params=dict()):
+    """ Returns a DataFrame of the subtracted signal data
+
+    Parameters
+    ----------
+    df : Dataframe
+        Dataframe of the absorbance data for the buffer and sample data.
+
+    buffer : Column position (optional)
+        Buffer column position. Defaults to zero, but can be specified if
+        required.
+
+    baseline_min : Float (optional)
+        Wavenumber minimum value used for eliminated any offset. The spectra
+        is zeroed to the average of all spectral values between the
+        `baseline_min` and `baseline_max` values
+
+    baseline_max : Float (optional)
+        Wavenumber maximum value used for eliminated any offset. The spectra
+        is zeroed to the average of all spectral values between the
+        `baseline_min` and `baseline_max` values
+
+    freq : String (optional)
+        Frequency column name used for calculations and setting the frequency
+        column name in the returned dataframe.
+
+    constant : Callable or Int (optional)
+        Can be a callable that takes the dataframe, sample location and buffer
+        location and returns an integer. Can also specify an integer constant
+
+    constant_params : Dict (optional)
+        Parameters passed to the buffer subtraction `constant` function
+
+    Returns
+    -------
+    Dataframe
+        Returns a dataframe with a the frequency data and all subtracted
+        spectra.
     """
-    if callable(constant):
-        scaling_constant = constant(df)
-    else:
-        scaling_constant = constant
-    result = df[df.columns[2]] - scaling_constant * df[df.columns[1]]
-    df[df.columns[2] + '_subtracted'] = result
-    df1 = df[(df[df.columns[0]] > 1729) & (df[df.columns[0]] < 1731)]
-    baseline_value = df1[df1.columns[3]].values[0]
-    df[df.columns[3]] = result - baseline_value
-    return df
+
+    buffer_col = df.columns[buffer]
+    samples = df.columns.drop([freq, buffer_col])
+
+    subtracted_spectra = {freq: df[freq]}
+    for sample in samples:
+        if callable(constant):
+            scaling_constant = constant(df, sample, buffer_col,
+                                        **constant_params)
+        else:
+            scaling_constant = constant
+        offset_result = df[sample] - scaling_constant * df[buffer_col]
+
+        baseline = offset_result[(df[freq] > baseline_min) &
+                                 (df[freq] < baseline_max)].mean()
+        if np.isnan(baseline):
+            raise ValueError(
+                'Could not determine a baseline value for the buffer '
+                'subtraction. Attempted to average the baseline values from '
+                '{0} to {1}.'.format(baseline_min, baseline_max))
+
+        result = offset_result - baseline
+        subtracted_spectra[sample] = result.values
+    final_subtracted = pd.DataFrame(subtracted_spectra)
+    return final_subtracted
