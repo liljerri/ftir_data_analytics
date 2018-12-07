@@ -40,24 +40,83 @@ import math
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from ftir.modeling.peak_definitions import yang_h20_2015
 from scipy import optimize
 
 
-def underlying_gaussian(df, col):
+def _split_result_array(res):
+    """ Test
+    """
+    # Pull out meaningful data triplets
+    centers = list()
+    width = list()
+    height = list()
+    for i in range(0, len(res.x), 3):
+        height.append(res.x[i])
+        centers.append(res.x[i+1])
+        width.append(res.x[i+2])
+    return centers, width, height,
+
+
+def underlying_gaussian(df, col, freq='freq'):
     """ Finds the gaussian curves that make up the FTIR signals
 
     Returns a tuple of the xdata (freq), ydata (summed gaussian)
-    and a list of ydata for each underlying gaussian"""
+    and a list of ydata for each underlying gaussian
+
+    Parameters
+    ----------
+    df : Dataframe
+        pandas dataframe containing the FTIR data. The data must be contain a
+        column of the wavenumber data, and a column of the spectral data.
+
+    col : Int or Str
+        Column index for the absorbance data to be fit. This value is used to
+        reference the `df` column using the standard pandas api, either integer
+        or string values are permitted.
+
+    freq : Int or Str (optional kwarg)
+        Column index or name for the frequency data. Defaults to `freq`, but
+        can be changed if a different name is used for the the wavenumber
+        (or frequency) column.
+
+    Returns
+    -------
+    xdata : Dataframe
+        Frequency range for the Gaussian fit
+
+    ydata :
+        Model absorbance data for the Gaussian fit. This returns the sum of all
+        Gaussian peaks.
+
+    gauss_list :
+
+    resid :
+        The function evaluated at the output of the optimized least squares
+        method from `scipy`
+
+    rsquared :
+
+    centers :
+
+    areas :
+    """
     # Creates an array of x, y data
-    data = np.array(pd.concat([df['freq'], df[col]], axis=1))
+    data = np.array(pd.concat([df[freq], df[col]], axis=1))
     # print(data)
 
     def errfunc(p, x, y):
-        """Does this to ensure that parameters are > 0"""
+        """ Simple error function taking the array of parameters, calculating
+        the Gaussian sum, and then taking the difference from the measured
+        spectra.
+
+        Prevents negative parameters by returning an array of very high error
+        when getting an negative parameter
+        """
         if min(p) > 0:
             return gaussian_sum(x, *p) - y
         else:
-            return 10000000000000000
+            return np.full((len(y),), 100, dtype=np.float64)
 
     # Deconvoluted amide I band frequencies for proteins in water
     clist = [1694, 1691, 1687, 1676, 1672, 1660, 1656, 1650, 1642, 1638, 1634,
@@ -98,24 +157,242 @@ def underlying_gaussian(df, col):
     return xdata, ydata, gausslist, resid, rsquared, centers, areas
 
 
-def guess_heights(df, col, center_list):
-    """ Determines guesses for the heights
+def gaussian_minimize(
+        df, col, freq='freq', peaks=yang_h20_2015, peak_width=5,
+        params={'method': 'L-BFGS-B'}):
+    """
+    Gradient based minimization implementation of the FTIR peak fitting
+
+    Uses the Scipy `optimize.minimize` function for  minimization. Different
+    solvers can be specified in the method parameters. This method is likely
+    to converge upon a local minimum rather than the global minimum, but
+    will converge MUCH faster than the different evolution solution.
+
+    Parameters
+    ----------
+    df : DataFrame
+        pandas dataframe containing the FTIR data. The data must be contain a
+        column of the wavenumber data, and a column of the spectral data.
+
+    col : Int or Str
+        Column index for the absorbance data to be fit. This value is used to
+        reference the `df` column using the standard pandas api, either integer
+        or string values are permitted.
+
+    freq : Int or Str (optional)
+        Column index or name for the frequency data. Defaults to `freq`.
+        Can be changed if a different name is used for the the wavenumber
+        (or frequency) column.
+
+    peak_width : Int (optional)
+        Maximum peak width. Defaults to 5
+
+    peaks : Peak Definitions (optional)
+        A dictionary containing peak definitions to be used. Three kwargs are
+        necessary:
+            * `peaks` which should provide a list of the the peak means,
+            * `uncertainties` which should provide a list of tuple bounds
+               around the peak means. These must be ordered the same as the
+               peak means list.
+            * `assignments` which should provide a list of the peak secondary
+               structure assignments. These must be ordered the same as the
+               peak means list.
+        Defaults to the Yang et. al, Nature Protocol 2015. peak definitions.
+
+    params : Dict (optional)
+        A dictionary of kwargs passed to the scipy differential evolution
+        optimization algorithm. If `None`, the Default settings within scipy
+        are used.
+
+
+    Returns
+    -------
+    TBD
+    """
+
+    def func(p, x, y):
+        """Function to find the local minimum in the boundary space
+
+        Parameters
+        ----------
+        p : 1-D array
+            Inputs are a 1-D array that follow the sequence:
+            (peak_height, peak_mean, peak_width)_{n}
+
+        x : 1-D array
+            Frequency range for evaluation
+
+        y : 1-D array
+            Measured absorbance data corresponding to the frequency range
+            provided
+        """
+        return np.sum((gaussian_sum(x, *p) - y)**2)
+
+    data = np.array(pd.concat([df[freq], df[col]], axis=1))
+    heights = guess_heights(df, col, peaks['means'], gain=1.0)
+    width = peak_width*2
+    bounds = list()
+    guess = list()
+
+    # Make 1-D array for optimization func definition above
+    for mean, bound, height in zip(peaks['means'], peaks['uncertainties'],
+                                   heights):
+        bounds.append((0, height))
+        bounds.append(bound)
+        bounds.append((0, width*2))
+        guess.append(height*0.95)
+        guess.append(mean)
+        guess.append(peak_width)
+
+    args = [func, np.array(guess)]
+    params['args'] = (data[:, 0], data[:, 1])
+    params['bounds'] = bounds
+    res = optimize.minimize(*args, **params)
+
+    areas = list()
+    for i in range(0, len(res.x), 3):
+        height = res.x[i]
+        width = res.x[i+2]
+        area = gaussian_integral(height, width)
+        areas.append(area)
+    return areas, res
+
+
+def gaussian_differential_evolution(
+        df, col, freq='freq', peaks=yang_h20_2015, peak_width=5,
+        params=dict()):
+    """
+    Differential evolution minimization implementation of the FTIR peak fitting
+
+    Uses the Scipy implementation of the Storn and Price differential evolution
+    minimization technique. This optimization approach does not use gradient
+    methods to find the global minimum across the defined space, and often
+    requires a larger number of function evaluations to converge to the local
+    minimum than other approaches, e.g. least squared optimization. The
+    advantage of this approach is that we can define the bounds of the peak
+    positions, and search of the global minima within this defined bounds
+    without the worry of converging on a local minimum. The disadvantage is
+    that is takes a really long time to run. Like hit go and walk away for a
+    couple hours long.
+
+    Parameters
+    ----------
+    df : DataFrame
+        pandas dataframe containing the FTIR data. The data must be contain a
+        column of the wavenumber data, and a column of the spectral data.
+
+    col : Int or Str
+        Column index for the absorbance data to be fit. This value is used to
+        reference the `df` column using the standard pandas api, either integer
+        or string values are permitted.
+
+    freq : Int or Str (optional)
+        Column index or name for the frequency data. Defaults to `freq`.
+        Can be changed if a different name is used for the the wavenumber
+        (or frequency) column.
+
+    peak_width : Int (optional)
+        Maximum peak width. Defaults to 5
+
+    peaks : Peak Definitions (optional)
+        A dictionary containing peak definitions to be used. Three kwargs are
+        necessary:
+            * `peaks` which should provide a list of the the peak means,
+            * `uncertainties` which should provide a list of tuple bounds
+               around the peak means. These must be ordered the same as the
+               peak means list.
+            * `assignments` which should provide a list of the peak secondary
+               structure assignments. These must be ordered the same as the
+               peak means list.
+        Defaults to the Yang et. al, Nature Protocol 2015. peak definitions.
+
+    params : Dict (optional)
+        A dictionary of kwargs passed to the scipy differential evolution
+        optimization algorithm. If `None`, the Default settings within scipy
+        are used.
+
+
+    Returns
+    -------
+    TBD
+    """
+
+    def func(p, x, y):
+        """Function to find the local minimum in the boundary space
+
+        Parameters
+        ----------
+        p : 1-D array
+            Inputs are a 1-D array that follow the sequence:
+            (peak_mean, peak_height, peak_width)_{n}
+
+        x : 1-D array
+            Frequency range for evaluation
+
+        y : 1-D array
+            Measured absorbance data corresponding to the frequency range
+            provided
+        """
+        return np.sum((gaussian_sum(x, *p) - y)**2)
+
+    data = np.array(pd.concat([df[freq], df[col]], axis=1))
+    heights = guess_heights(df, col, peaks['means'], gain=1.0)
+    width = peak_width
+    bounds = list()
+    # Make 1-D array for optimization to match the func definition above
+    for bound, height in zip(peaks['uncertainties'], heights):
+        bounds.append((0, height))
+        bounds.append(bound)
+        bounds.append((0, width))
+
+    args = [func, np.array(bounds)]
+    params['args'] = (data[:, 0], data[:, 1])
+    res = optimize.differential_evolution(*args, **params)
+
+    areas = []
+    centers, width, height = _split_result_array(res)
+    for a, b in zip(heights, width):
+        area = gaussian_integral(a, b)
+        areas.append(area)
+    return areas, res
+
+
+def guess_heights(df, col, center_list, gain=0.95):
+    """ Determines guesses for the heights based on measured data.
+
+    Function creates an integer mapping to the measured frequencies, and then
+    creates an initial peak height guess of gain*actual height at x=freq*. A
+    Default of 0.95 seems to work best for most spectra, but can be change to
+    improve convergence.
+
+    Parameters
+    ----------
+    df : Dataframe
+        Dataframe containing the measured absorbance data
+
+    col : string or integer
+        Column index for the absorbance data being fit. Accepts either index
+        or string convention.
+
+    center_list : iterable of integers
+        An iterable of integer peak positions used to find the experiment
+        absorbance at a given wavenumber. I.e, the heights are returned at the
+        center values in this iterable
+
+    gain : number (optional)
+        Fraction of the measured absorbance value to use determine the initial
+        guess for the peak height. The value Default value is 0.95, and thus
+        by default, all initial peak guesses are 95% of the peak max.
+
     """
     heights = []
     freq_map = {}
     for i in df.freq:
-        # returns an integer of the frequency with the decimal values truncated
         j = math.floor(i)
-        # creates library of floor freq vs intensity
         freq_map[j] = float(df[col].get(df.freq == i))
     for i in center_list:
-        # gives intensity value for each frequency in underlying_gaussian clist
         height = freq_map[i]
-        # Initial guess is 0.95*actual height at x=freq*
-        # The constant 0.95 is arbitrary but seemed to give the best fit
-        # Mess with the constant as needed for difficult to fit spectra
-        # fills the empty heights list with 0.95*corresponding freqs.
-        heights.append(0.95*height)
+        heights.append(gain*height)
     return heights
 
 
@@ -128,15 +405,7 @@ def gaussian(x, height, center, width):
 def gaussian_sum(x, *args):
     """ Returns the sum of the gaussian function inputs
     """
-    if len(args) % 3 != 0:
-        raise ValueError('Args must divisible by 3')
-    gausslist = []
-    count = 0
-    for i in range(int(len(args)/3)):
-        gausstemp = gaussian(x, args[count], args[count+1], args[count+2])
-        gausslist.append(gausstemp)
-        count += 3
-    return sum(gausslist)
+    return sum(gaussian_list(x, *args))
 
 
 def gaussian_list(x, *args):
@@ -160,85 +429,84 @@ def gaussian_integral(height, width):
     return height*width*math.sqrt(2*math.pi)
 
 
-def gaussian_fit(ftir_df, d, folder_path):
-    # Calls gaussian peak fitting function
-    fit_data = underlying_gaussian(ftir_df, d)
-    xdata, ydata, gausslist, resid, rsquared, centers, areas = fit_data
+def secondary_structure(areas, peaks):
+    """ Returns secondary structure content
+
+    Takes ordered area definitions and peak definitions and returns secondary
+    structure quantities.
+
+    Parameters
+    ----------
+
+    areas : list
+        An ordered list of peak areas. Areas should be ordered from lowest
+        wavenumber to the highest wavenumber
+
+    peaks : Dict
+        Peak definition dictionary containing a `means` and `assignments`
+        items.
+
+    Returns
+    -------
+    Dict
+        Dictionary of secondary structure content
+
+    """
+
+    # check area length
+    if not len(areas)==len(peaks['means']):
+        raise ValueError('Area definitions do not match the number of peak'
+                         'definitions')
+    structures = {i: 0 for i in set(peaks['assignments'])}
+    for i, assignment in enumerate(peaks['assignments']):
+        structures[assignment] += areas[i]/sum(areas)
+
+    return structures
+
+
+def create_fit_plots(raw_df, col, peak_list):
+    """ Creates the following plots for each protein sample:
+
+    Parameters
+    ----------
+    raw_df : Dataframe
+        Pandas dataframe containing the raw FTIR second derivative data.
+        Frequency and absorbance values will be used for plotting and residual
+        calculations.
+
+    col : String
+        Dataframe column name to be used for plotting.
+
+    peak_list : Iterable
+        Iterable containing the peak fit data. Each value in the iterable will
+        be plotted to show the quality of the model fit. The peaks are also sum
+        to show the composite fit and calculate the residuals.
+
+    Returns
+    -------
+    Plot
+        `matplotlib.pyplot` handle is returned. This plot can be displayed via
+        `plot.show()` or saved as a file image via `plot.save()`
+    """
 
     fig = plt.figure(figsize=(8, 6))
     ax = fig.add_subplot(211)
-    freqs = list(ftir_df['freq'])
-    signal = list(ftir_df[d])
-    ax.plot(freqs, signal, label='$2^{nd}$ derivative')
-    ax.plot(xdata, ydata, label='Gaussian fit')
-    for i in range(len(gausslist)):
-        ax.plot(xdata, gausslist[i], ls='--')
-        gauss_df = pd.DataFrame(gausslist[i], columns=['gauss_peak' + str(i)])
-        ftir_df = pd.concat([ftir_df, gauss_df], axis=1)
-        
+
+    xdata = raw_df['freq']
+    y_fit = sum(peak_list)
+    ax.plot(xdata, raw_df[col], label='$2^{nd}$ derivative')
+    ax.plot(xdata, y_fit, label='Model fit')
+    for i in range(len(peak_list)):
+        ax.plot(xdata, peak_list[i], ls='--', label='')
+
     ax.set_xlim([1705, 1600])
-    ax.legend(loc=1)
+    ax.legend(loc=2)
 
+    resid = raw_df[col] - y_fit
     ax = fig.add_subplot(212)
-
     ax.plot(xdata, resid, label='residuals')
     ax.set_xlim([1705, 1600])
     ax.set_xlabel('Wavenumber ($cm^{-1}$)', fontsize=11)
     ax.set_xlim([1705, 1600])
     ax.legend(loc=2)
-
-    plt.savefig(folder_path + '/' + d+'_GaussianFit and Residuals.png')
-    plt.close()
-    
-    ftir_df[''] = np.nan
-    ftir_df['centers'] = np.nan
-    ftir_df['areas'] = np.nan
-    # adjust based on number of initial peak guesses in clist
-    ftir_df['centers'][0:13] = centers
-    ftir_df['areas'][0:13] = areas
-    
-    s = ftir_df[['centers', 'areas']]
-    s = s[(s.centers <= 1700) & (s.centers >= 1620)]
-    print(s)
-    turn = s[(s.centers <= 1700) & (s.centers >= 1666)]
-    helix = s[(s.centers < 1666) & (s.centers >= 1650)]
-    unordered = s[(s.centers < 1650) & (s.centers >= 1644)]
-    sheet = s[(s.centers < 1644) & (s.centers >= 1620)]
-    print(turn)
-    print(helix)
-    print(unordered)
-    print(sheet)
-    
-    struct_area = s['areas'].sum()
-
-    pct_turn = round((((turn['areas'].sum())/struct_area)*100), 4)
-    pct_helix = round((((helix['areas'].sum())/struct_area)*100), 4)
-    pct_unordered = round((((unordered['areas'].sum())/struct_area)*100), 4)
-    pct_sheet = round((((sheet['areas'].sum())/struct_area)*100), 4)
-    
-    ftir_df[''] = np.nan
-    ftir_df['% Turn'] = np.nan
-    ftir_df['% Turn'][:1] = pct_turn
-    ftir_df['% Helix'] = np.nan
-    ftir_df['% Helix'][:1] = pct_helix
-    ftir_df['% Unordered'] = np.nan
-    ftir_df['% Unordered'][:1] = pct_unordered
-    ftir_df['% Sheet'] = np.nan
-    ftir_df['% Sheet'][:1] = pct_sheet
-    
-    # ftir_df[['% Turn', '% Helix', '% Unordered', '% Sheet']].
-    # plot(kind = 'bar', use_index=False)
-    
-    ftir_df.to_csv(folder_path + '/' + 'Gaussian fits for '+d+'.csv')
-    
-    return pct_turn, pct_helix, pct_unordered, pct_sheet
-
-
-def create_plots(raw_df, folder_path):
-    """Creates the following plots for each protein sample:"""
-    
-    d = raw_df.columns[1]
-    print(d)
-    structs = gaussian_fit(raw_df, d, folder_path)
-    pct_turn, pct_helix, pct_unordered, pct_sheet = structs
-    return d, pct_turn, pct_helix, pct_unordered, pct_sheet
+    return plt
