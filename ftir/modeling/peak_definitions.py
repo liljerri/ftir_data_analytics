@@ -12,9 +12,14 @@ means: List
     list of the mean frequencies for a given peak
 
 uncertainties: List of tuples
-    list of tuples providing to lower and upper bounds of the ;
+    list of tuples providing to lower and upper bounds of the absorbance band
 
+relative_uncertainties : List
+    list of the plus/minus values around the mean. The `relative_uncertainties`
+    are used to calculate the `uncertainties`.
 
+assignments : List
+    list of the literature peak assignments
 
 """
 
