@@ -11,7 +11,7 @@ buffer subtractions, spectral offsetting corrections, and deconvolute
 second derivative data.
 
 This project was started as a way to improve spectra deconvolution of FTIR 
-data, and only the tools necessary to take FTIR absorbance data have been 
+data, and only the tools necessary to analyze FTIR absorbance data have been 
 built by KBI Biopharma. 
 
 ## Technical Overview
@@ -23,7 +23,7 @@ built by KBI Biopharma.
 been performed, however, only basic functionality from each package is used, 
 and it is expected that ftir_data_analytics will work with almost any version 
 of these packages. 
-    * pandas version 
+    * pandas 
     * numpy
     * matplotlib
     * scipy
