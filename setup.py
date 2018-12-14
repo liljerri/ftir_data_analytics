@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 
 HERE = dirname(abspath(__file__))
 
-PKG_NAME = "ftir_data_analytics"
+PKG_NAME = "ftir"
 
 info = {}
 init_file = join(HERE, PKG_NAME, "__init__.py")
