@@ -58,7 +58,7 @@ def _split_result_array(res):
     return centers, width, height,
 
 
-def underlying_gaussian(df, col, freq='freq'):
+def gaussian_leastsq(df, col, freq='freq'):
     """ Finds the gaussian curves that make up the FTIR signals
 
     Returns a tuple of the xdata (freq), ydata (summed gaussian)
@@ -155,6 +155,42 @@ def underlying_gaussian(df, col, freq='freq'):
         area = gaussian_integral(a, c)
         areas.append(area)
     return xdata, ydata, gausslist, resid, rsquared, centers, areas
+
+
+def gaussian_least_squares(df, col, freq='freq', peaks=yang_h20_2015,
+                           peak_width=5, params=dict()):
+
+    def fun(p, x, y):
+        """ Minimizing across parameter space p, for a given range, x"""
+        return gaussian_sum(x, *p) - y
+
+    data = np.array(pd.concat([df[freq], df[col]], axis=1))
+    heights = guess_heights(df, col, peaks['means'], gain=1.0)
+    width = peak_width
+    lb = list()
+    ub = list()
+    guess = list()
+
+    # Make 1-D array for optimization func definition above
+    for mean, bound, height in zip(peaks['means'], peaks['uncertainties'],
+                                   heights):
+        lb.extend([0, bound[0], 0])
+        ubh = np.inf if height <= 0 else height
+        ub.extend([ubh, bound[1], peak_width*4])
+        guess.extend([height*0.95, mean, peak_width])
+
+    args = [fun, np.array(guess)]
+    params['args'] = (data[:, 0], data[:, 1])
+    params['bounds'] = (np.array(lb), np.array(ub))
+    res = optimize.least_squares(*args, **params)
+
+    areas = list()
+    for i in range(0, len(res.x), 3):
+        height = res.x[i]
+        width = res.x[i+2]
+        area = gaussian_integral(height, width)
+        areas.append(area)
+    return areas, res
 
 
 def gaussian_minimize(
