@@ -42,6 +42,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from ftir.modeling.peak_definitions import yang_h20_2015
 from scipy import optimize
+from scipy.spatial import ConvexHull
 
 
 def _split_result_array(res):
@@ -56,6 +57,30 @@ def _split_result_array(res):
         centers.append(res.x[i+1])
         width.append(res.x[i+2])
     return centers, width, height,
+
+
+def sd_baseline_correction(df, col=None, freq='freq', flip=True):
+    def simple(spec):
+        return spec - spec.min()
+
+    def rubberband(x, y, ascending=False):
+        v = ConvexHull(np.column_stack([x, y])).vertices
+        if ascending:
+            v = np.roll(v, -v.argmin())
+            v = v[:v.argmax()]
+        else: 
+            v = np.roll(v, -v.argmax())
+            v = v[:v.argmin()]
+    
+        # Create baseline using linear interpolation between vertices
+        return y - np.interp(x, x[v], y[v])
+
+
+    if flip:
+        df = df.apply(lambda x: x*-1)
+
+
+    return df.apply(rubberband)
 
 
 def gaussian_leastsq(df, col, freq='freq'):
