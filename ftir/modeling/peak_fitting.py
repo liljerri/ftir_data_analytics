@@ -75,7 +75,6 @@ def sd_baseline_correction(df, col=None, freq='freq', flip=True):
         # Create baseline using linear interpolation between vertices
         return y - np.interp(x, x[v], y[v])
 
-
     if flip:
         df = df.apply(lambda x: x*-1)
 
