@@ -2,22 +2,19 @@ import os
 import pandas as pd
 
 
-def create_df_from_single_file(data_filename, folder_path,  max_freq=3999,
+def create_df_from_single_file(data_filename,  max_freq=3999,
                                min_freq=1000):
     """ Creates a DataFrame with protein formulations for the given input data
     files
     """
 
-    df = pd.read_csv(folder_path + '/' + data_filename)
+    df = pd.read_csv(data_filename, header=None)
 
-    df2 = df.columns.get_values()
-    filename_list = df2.tolist()
-    file_names = ['freq']
-    for f in filename_list[1:]:
-        title = f.split('.')[0]
-        file_names.append(title)
-
-    df.columns = file_names
+    col_names = ['freq']
+    title = os.path.basename(data_filename).split('.')[0]
+    title = title.split('.')[0]
+    col_names.append(title)
+    df.columns = col_names
 
     # Ensures the dataframe is sorted descending wavenumber
     df.set_index(df.columns[0], inplace=True)
@@ -26,9 +23,8 @@ def create_df_from_single_file(data_filename, folder_path,  max_freq=3999,
     # Ensures the dataframe is truncated to maximum 1000 - 3999 wavenumber
     # range to start
     df = df.truncate(before=min_freq, after=max_freq)
-    df.reset_index(drop=True, inplace=True)
 
-    return df, file_names
+    return df
 
 
 def create_df_from_multiple_files(
@@ -63,5 +59,4 @@ def create_df_from_multiple_files(
     df.set_index('freq', inplace=True)
     df.sort_index(ascending=True, inplace=True)
     df = df.truncate(before=min_freq, after=max_freq)
-    df.reset_index(drop=True, inplace=True)
-    return df, file_names
+    return df
