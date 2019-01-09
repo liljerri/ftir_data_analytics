@@ -58,7 +58,7 @@ def _split_result_array(res):
     return centers, width, height,
 
 
-def underlying_gaussian(df, col, freq='freq'):
+def underlying_gaussian(df, col):
     """ Finds the gaussian curves that make up the FTIR signals
 
     Returns a tuple of the xdata (freq), ydata (summed gaussian)
@@ -74,11 +74,6 @@ def underlying_gaussian(df, col, freq='freq'):
         Column index for the absorbance data to be fit. This value is used to
         reference the `df` column using the standard pandas api, either integer
         or string values are permitted.
-
-    freq : Int or Str (optional kwarg)
-        Column index or name for the frequency data. Defaults to `freq`, but
-        can be changed if a different name is used for the the wavenumber
-        (or frequency) column.
 
     Returns
     -------
@@ -102,7 +97,7 @@ def underlying_gaussian(df, col, freq='freq'):
     areas :
     """
     # Creates an array of x, y data
-    data = np.array(pd.concat([df[freq], df[col]], axis=1))
+    data = np.array(pd.concat([df.index, df[col]], axis=1))
     # print(data)
 
     def errfunc(p, x, y):
@@ -158,7 +153,7 @@ def underlying_gaussian(df, col, freq='freq'):
 
 
 def gaussian_minimize(
-        df, col, freq='freq', peaks=yang_h20_2015, peak_width=5,
+        df, col, peaks=yang_h20_2015, peak_width=5,
         params={'method': 'L-BFGS-B'}):
     """
     Gradient based minimization implementation of the FTIR peak fitting
@@ -178,11 +173,6 @@ def gaussian_minimize(
         Column index for the absorbance data to be fit. This value is used to
         reference the `df` column using the standard pandas api, either integer
         or string values are permitted.
-
-    freq : Int or Str (optional)
-        Column index or name for the frequency data. Defaults to `freq`.
-        Can be changed if a different name is used for the the wavenumber
-        (or frequency) column.
 
     peak_width : Int (optional)
         Maximum peak width. Defaults to 5
@@ -228,7 +218,7 @@ def gaussian_minimize(
         """
         return np.sum((gaussian_sum(x, *p) - y)**2)
 
-    data = np.array(pd.concat([df[freq], df[col]], axis=1))
+    data = np.array(pd.concat([df.index, df[col]], axis=1))
     heights = guess_heights(df, col, peaks['means'], gain=1.0)
     width = peak_width*2
     bounds = list()
@@ -259,7 +249,7 @@ def gaussian_minimize(
 
 
 def gaussian_differential_evolution(
-        df, col, freq='freq', peaks=yang_h20_2015, peak_width=5,
+        df, col, peaks=yang_h20_2015, peak_width=5,
         params=dict()):
     """
     Differential evolution minimization implementation of the FTIR peak fitting
@@ -285,11 +275,6 @@ def gaussian_differential_evolution(
         Column index for the absorbance data to be fit. This value is used to
         reference the `df` column using the standard pandas api, either integer
         or string values are permitted.
-
-    freq : Int or Str (optional)
-        Column index or name for the frequency data. Defaults to `freq`.
-        Can be changed if a different name is used for the the wavenumber
-        (or frequency) column.
 
     peak_width : Int (optional)
         Maximum peak width. Defaults to 5
@@ -335,7 +320,7 @@ def gaussian_differential_evolution(
         """
         return np.sum((gaussian_sum(x, *p) - y)**2)
 
-    data = np.array(pd.concat([df[freq], df[col]], axis=1))
+    data = np.array(pd.concat([df.index, df[col]], axis=1))
     heights = guess_heights(df, col, peaks['means'], gain=1.0)
     width = peak_width
     bounds = list()
@@ -387,9 +372,9 @@ def guess_heights(df, col, center_list, gain=0.95):
     """
     heights = []
     freq_map = {}
-    for i in df.freq:
+    for i in df.index:
         j = math.floor(i)
-        freq_map[j] = float(df[col].get(df.freq == i))
+        freq_map[j] = float(df[col].get(df.index == i))
     for i in center_list:
         height = freq_map[i]
         heights.append(gain*height)
@@ -492,7 +477,7 @@ def create_fit_plots(raw_df, col, peak_list):
     fig = plt.figure(figsize=(8, 6))
     ax = fig.add_subplot(211)
 
-    xdata = raw_df['freq']
+    xdata = raw_df.index
     y_fit = sum(peak_list)
     ax.plot(xdata, raw_df[col], label='$2^{nd}$ derivative')
     ax.plot(xdata, y_fit, label='Model fit')

@@ -2,7 +2,8 @@ import os
 import pandas as pd
 
 
-def create_df_from_single_file(data_filename, folder_path):
+def create_df_from_single_file(data_filename, folder_path,  max_freq=3999,
+                               min_freq=1000):
     """ Creates a DataFrame with protein formulations for the given input data
     files
     """
@@ -19,12 +20,12 @@ def create_df_from_single_file(data_filename, folder_path):
     df.columns = file_names
 
     # Ensures the dataframe is sorted descending wavenumber
-    df = df.sort_values(by=df.columns[0], ascending=False)
-    df = df.reset_index(drop=True)
+    df.set_index(df.columns[0], inplace=True)
+    df.sort_index(ascending=True, inplace=True)
 
     # Ensures the dataframe is truncated to maximum 1000 - 3999 wavenumber
     # range to start
-    df = df[(df[df.columns[0]] < 3999) & (df[df.columns[0]] > 999)]
+    df = df.truncate(before=min_freq, after=max_freq)
     df.reset_index(drop=True, inplace=True)
 
     return df, file_names
@@ -41,10 +42,12 @@ def create_df_from_multiple_files(
         together. The frequency data of the buffer file is taken and, and all
         other frequency values are checked against the buffer frequency.
     """
+    initial_file = data_filenames[0]
+    file_names = []
+    df = pd.read_csv(initial_file, header=None)
+    title = os.path.basename(initial_file).split('.')[0]
+    df.columns = ['freq', title]
 
-    df = pd.read_csv(data_filenames[0], header=None)
-    df.columns = ['freq', 'buffer']
-    file_names = ['freq', 'buffer']
     for f in data_filenames[1:]:
         d = pd.read_csv(f, header=None)
         title = os.path.basename(f).split('.')[0]
@@ -57,8 +60,8 @@ def create_df_from_multiple_files(
         file_names.append(title)
 
     # Ensures the dataframe is sorted descending wavenumber
-    df = df.sort_values(by=['freq'], ascending=False)
-    df = df[(df['freq'] <= max_freq) & (df['freq'] >= min_freq)]
+    df.set_index('freq', inplace=True)
+    df.sort_index(ascending=True, inplace=True)
+    df = df.truncate(before=min_freq, after=max_freq)
     df.reset_index(drop=True, inplace=True)
-
     return df, file_names
