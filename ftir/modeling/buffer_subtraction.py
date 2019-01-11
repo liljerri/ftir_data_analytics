@@ -78,7 +78,7 @@ def find_buffer_subtraction_constant(df, sample, buffer, **params):
     return res.x
 
 
-def buffer_subtract(df, buffer=1, baseline_min=1729, baseline_max=1731,
+def buffer_subtract(df, buffer=0, baseline_min=1729, baseline_max=1731,
                     constant=find_buffer_subtraction_constant,
                     constant_params=dict()):
     """ Returns a DataFrame of the subtracted signal data
