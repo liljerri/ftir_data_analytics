@@ -59,7 +59,7 @@ def find_buffer_subtraction_constant(df, sample, buffer, **params):
     window_max = params.pop('window_max', WINDOW_MAX)
     min_periods = params.pop('min_periods', MIN_PERIODS)
 
-    def func(c, dataframe):
+    def func(c, dataframe, sample):
         """ Optimization function for buffer subtraction
 
         Takes a constant `c` and dataframe, and minimizes the maximum range
@@ -74,7 +74,7 @@ def find_buffer_subtraction_constant(df, sample, buffer, **params):
                                  window=window).mean()
         return abs(smoothed.max() - smoothed.min())
 
-    res = optimize.minimize(func, 0.99, args=df)
+    res = optimize.minimize(func, 0.99, args=(df, sample))
     return res.x
 
 
@@ -138,4 +138,5 @@ def buffer_subtract(df, buffer=0, baseline_min=1729, baseline_max=1731,
         result = offset_result - baseline
         subtracted_spectra[sample] = result.values
     final_subtracted = pd.DataFrame(subtracted_spectra)
+    final_subtracted.set_index('freq', inplace=True)
     return final_subtracted
