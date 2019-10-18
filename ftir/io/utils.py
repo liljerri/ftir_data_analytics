@@ -41,7 +41,6 @@ def create_df_from_multiple_files(
         together. The frequency data of the buffer file is taken and, and all
         other frequency values are checked against the buffer frequency.
     """
-
     df = pd.read_csv(data_filenames[0], header=None)
     df.columns = ['freq', 'buffer']
     file_names = ['freq', 'buffer']

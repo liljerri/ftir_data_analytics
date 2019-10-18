@@ -1,6 +1,6 @@
 import pandas as pd
 from ftir.modeling.buffer_subtraction import find_buffer_subtraction_constant, buffer_subtract
-from ftir.modeling.peak_fitting import gaussian_minimize, gaussian_differential_evolution, secondary_structure, create_fit_plots, gaussian_list
+from ftir.modeling.peak_fitting import gaussian_minimize, gaussian_least_squares, secondary_structure, create_fit_plots, gaussian_list
 from ftir.modeling.peak_definitions import yang_h20_2015
 from ftir.io.utils import create_df_from_single_file
 
@@ -21,11 +21,11 @@ num_files = len(raw_data_filename)
 
 for i in proteins:
     current_df = rawData_df[['freq', i]].copy()
-    area, res = gaussian_minimize(
-        current_df, current_df.columns[1],
-        params={'method': 'TNC', 'tol': 1e-8})
+    area, res = gaussian_least_squares(current_df, current_df.columns[1])
 
     structs = secondary_structure(area, yang_h20_2015)
+    print(i)
+    print(structs)
     gaussian_list_data = gaussian_list(rawData_df['freq'], *res.x)
-    plt = create_fit_plots(current_df, i, gaussian_list_data)
-    plt.show()
+    #plt = create_fit_plots(current_df, i, gaussian_list_data)
+    #plt.show()
