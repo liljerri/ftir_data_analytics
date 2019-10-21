@@ -59,11 +59,63 @@ def _split_result_array(res):
     return centers, width, height,
 
 
-def sd_baseline_correction(df, col=None, freq='freq', flip=True):
-    def simple(spec):
+def sd_baseline_correction(df, cols=None, freq=0, flip=False, 
+                           method='min', bounds=[1600,1700], inplace=False):
+    """ Performs a baseline subtraction on second derivative spectra
+
+    Returns a dataframe of the baseline subtracted data. The dataframe can be
+    modified in place, or unmodified with a new dataframe being returned. There
+    are two methods for performing the buffer subtraction, a minimum
+    value subtraction where zero is set to the smallest value in the defined 
+    range, or a rubberband method which uses a convexhull approach to baseline
+    correction. 
+
+    Parameters
+    ----------
+    df : Dataframe
+        pandas dataframe containing the FTIR data. The data must be contain a
+        column of the wavenumber data, and a column of the spectral data.
+
+    cols : list (default: None)
+        List of column names which define the the absorbance data to be fit. 
+        These values are column headers, not column indecies. Integer values 
+        can be used as column names and are thus ambiguous and not allowed for 
+        defining column indecies. 
+
+    freq : Int or Str (default: 0)
+        Column index or name for the wavelength data. Defaults to the first 
+        column in the dataframe, but can be changed to a different index or 
+        a different name if a different column is used for the wavelength 
+        column. If an integer is passed, then it is first checked if the 
+        integer is a column name. If the integer is not a column name, it is 
+        assumed to be the index of the frequency range. 
+    
+    method :  Str (default: 'min')
+        Method used for baseline subtraction. Can be `min` or `rubberband`. 
+        `min` subtracts by the minimum value in the defined range. `rubberband`
+        applies a convexhull fit of the baseline around the defined range. 
+    
+    flip : bool (default: False)
+        A boolean to flip the data over the x-axis (i.e. muliply by -1)
+        
+    bounds : iterable of two numbers (default: [1600, 1700])
+        Defines the range to use for baseline subtraction. The default values 
+        are set around the Amide I band. These values can be expanded to
+        include the Amide II or other FTIR features. The max and min value of 
+        the interable are used
+
+    Returns
+    -------
+    Dataframe
+        Baseline corrected dataframe across the specified range. 
+    """
+  
+    def minimum(spec):
+        """ `minimum` value subtraction function applied to the dataframe """
         return spec - spec.min()
 
     def rubberband(x, y, ascending=False):
+        """ `rubberband` subtraction function applied to the dataframe """
         v = ConvexHull(np.column_stack([x, y])).vertices
         if ascending:
             v = np.roll(v, -v.argmin())
@@ -75,12 +127,42 @@ def sd_baseline_correction(df, col=None, freq='freq', flip=True):
         # Create baseline using linear interpolation between vertices
         return y - np.interp(x, x[v], y[v])
 
+    # get the frequency column name
+    if freq not in df.columns and isinstance(freq, int):
+        # get column name if an integer and not a column header
+        freq = df.columns[freq] 
 
+    # determine which indecies to use based upon the bounds
+    if not bounds:
+        filtered_df = df
+    else:       
+        filtered_df = df[(df[freq] > min(bounds)) & (df[freq] < max(bounds))]
+    if len(filtered_df) == 0:
+        raise ValueError('Bounds or frequency column definition returned an '
+                         'empty frequeny range')
+    
+    # determine which colums to use for corrections
+    if not cols:
+        cols = [x for x in df.columns if x != freq]
+
+    # flip over the x-axis if needed   
     if flip:
-        df = df.apply(lambda x: x*-1)
+        preprocessed_df = filtered_df[cols].apply(lambda x: x*-1)
+    else:
+        preprocessed_df = filtered_df[cols]
 
-
-    return df.apply(rubberband)
+    # apply the baseline subtraction method
+    if method == 'min':
+        corrected_spectra = preprocessed_df.apply(minimum)
+    elif method == 'rubberband':
+        corrected_spectra = preprocessed_df.apply(rubberband)
+    else:
+        raise NameError('name {0} is not a supported baseline method'
+                        ''.format(method))
+        
+    # create the final dataframe and return
+    return pd.concat([filtered_df[freq], corrected_spectra], 
+                     axis=1, sort=False)
 
 
 def gaussian_leastsq(df, col, freq='freq'):
