@@ -60,7 +60,7 @@ def _split_result_array(res):
 
 
 def sd_baseline_correction(df, cols=None, freq=0, flip=False, 
-                           method='min', bounds=[1600,1700], inplace=False):
+                           method='min', bounds=[1550,1750], inplace=False):
     """ Performs a baseline subtraction on second derivative spectra
 
     Returns a dataframe of the baseline subtracted data. The dataframe can be
@@ -114,15 +114,20 @@ def sd_baseline_correction(df, cols=None, freq=0, flip=False,
         """ `minimum` value subtraction function applied to the dataframe """
         return spec - spec.min()
 
-    def rubberband(x, y, ascending=False):
-        """ `rubberband` subtraction function applied to the dataframe """
+    def rubberband(x, y):
+        """ `rubberband` subtraction function """
         v = ConvexHull(np.column_stack([x, y])).vertices
+        
+        ascending = True if x[0] < x[1] else False
+        
         if ascending:
+            # rotate vertices until they start from the lowest one
             v = np.roll(v, -v.argmin())
-            v = v[:v.argmax()]
+            v = v[:v.argmax() + 1]
         else: 
+            # rotate vertices until they start from the highest one
             v = np.roll(v, -v.argmax())
-            v = v[:v.argmin()]
+            v = v[:v.argmin()+1]
     
         # Create baseline using linear interpolation between vertices
         return y - np.interp(x, x[v], y[v])
@@ -132,7 +137,7 @@ def sd_baseline_correction(df, cols=None, freq=0, flip=False,
         # get column name if an integer and not a column header
         freq = df.columns[freq] 
 
-    # determine which indecies to use based upon the bounds
+    # filter around the defined bounds
     if not bounds:
         filtered_df = df
     else:       
@@ -141,7 +146,7 @@ def sd_baseline_correction(df, cols=None, freq=0, flip=False,
         raise ValueError('Bounds or frequency column definition returned an '
                          'empty frequeny range')
     
-    # determine which colums to use for corrections
+    # determine which colums to apply corrections
     if not cols:
         cols = [x for x in df.columns if x != freq]
 
@@ -154,13 +159,21 @@ def sd_baseline_correction(df, cols=None, freq=0, flip=False,
     # apply the baseline subtraction method
     if method == 'min':
         corrected_spectra = preprocessed_df.apply(minimum)
+        
     elif method == 'rubberband':
-        corrected_spectra = preprocessed_df.apply(rubberband)
+        freqCol = filtered_df[freq].values
+        vals = dict()
+        for colName, colData in preprocessed_df.iteritems():
+            vals[colName] = rubberband(freqCol, colData.values)
+        corrected_spectra = pd.DataFrame(data=vals)
+
     else:
         raise NameError('name {0} is not a supported baseline method'
                         ''.format(method))
         
-    # create the final dataframe and return
+    # create the final dataframe with a clean index and return
+    filtered_df.reset_index(drop=True, inplace=True)
+    corrected_spectra.reset_index(drop=True, inplace=True)
     return pd.concat([filtered_df[freq], corrected_spectra], 
                      axis=1, sort=False)
 
