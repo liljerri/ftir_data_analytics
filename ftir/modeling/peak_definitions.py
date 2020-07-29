@@ -47,10 +47,10 @@ yang_h20_2015 = {
                       (1666, 1668), (1674, 1676), (1678, 1682), (1683, 1687),
                       (1689, 1693), (1694, 1698)],
     'relative_uncertainties': [1, 2, 2, 2, 1, 2, 2, 3, 1, 1, 2, 2, 2, 2],
-    'assignments': ['beta_sheet', 'beta_sheet', 'beta_sheet', 'beta_sheet',
-                    'beta_sheet', 'unordered', 'alpha_helix', '310_helix',
-                    'beta_turn', 'beta_turn', 'beta_turn', 'beta_turn',
-                    'beta_sheet', 'beta_sheet']
+    'assignments': ['\u03B2-sheet', '\u03B2-sheet', '\u03B2-sheet', '\u03B2-sheet',
+                    '\u03B2-sheet', 'unordered', '\u03B1-helix', '310-helix',
+                    '\u03B2-turn', '\u03B2-turn', '\u03B2-turn', '\u03B2-turn',
+                    '\u03B2-sheet', '\u03B2-sheet']
 }
 
 

@@ -141,7 +141,7 @@ def sd_baseline_correction(df, cols=None, freq=0, flip=False,
     if not bounds:
         filtered_df = df
     else:       
-        filtered_df = df[(df[freq] > min(bounds)) & (df[freq] < max(bounds))]
+        filtered_df = df[(df.iloc[:,0] > min(bounds)) & (df.iloc[:,0] < max(bounds))]
     if len(filtered_df) == 0:
         raise ValueError('Bounds or frequency column definition returned an '
                          'empty frequeny range')
@@ -161,7 +161,7 @@ def sd_baseline_correction(df, cols=None, freq=0, flip=False,
         corrected_spectra = preprocessed_df.apply(minimum)
         
     elif method == 'rubberband':
-        freqCol = filtered_df[freq].values
+        freqCol = filtered_df.iloc[:,0].values
         vals = dict()
         for colName, colData in preprocessed_df.iteritems():
             vals[colName] = rubberband(freqCol, colData.values)
@@ -174,117 +174,19 @@ def sd_baseline_correction(df, cols=None, freq=0, flip=False,
     # create the final dataframe with a clean index and return
     filtered_df.reset_index(drop=True, inplace=True)
     corrected_spectra.reset_index(drop=True, inplace=True)
-    return pd.concat([filtered_df[freq], corrected_spectra], 
+    return pd.concat([filtered_df.iloc[:,0], corrected_spectra], 
                      axis=1, sort=False)
 
 
-def gaussian_leastsq(df, col, freq='freq'):
-    """ Finds the gaussian curves that make up the FTIR signals
 
-    Returns a tuple of the xdata (freq), ydata (summed gaussian)
-    and a list of ydata for each underlying gaussian
-
-    Parameters
-    ----------
-    df : Dataframe
-        pandas dataframe containing the FTIR data. The data must be contain a
-        column of the wavenumber data, and a column of the spectral data.
-
-    col : Int or Str
-        Column index for the absorbance data to be fit. This value is used to
-        reference the `df` column using the standard pandas api, either integer
-        or string values are permitted.
-
-    freq : Int or Str (optional kwarg)
-        Column index or name for the frequency data. Defaults to `freq`, but
-        can be changed if a different name is used for the the wavenumber
-        (or frequency) column.
-
-    Returns
-    -------
-    xdata : Dataframe
-        Frequency range for the Gaussian fit
-
-    ydata :
-        Model absorbance data for the Gaussian fit. This returns the sum of all
-        Gaussian peaks.
-
-    gauss_list :
-
-    resid :
-        The function evaluated at the output of the optimized least squares
-        method from `scipy`
-
-    rsquared :
-
-    centers :
-
-    areas :
-    """
-    # Creates an array of x, y data
-    data = np.array(pd.concat([df[freq], df[col]], axis=1))
-    # print(data)
-
-    def errfunc(p, x, y):
-        """ Simple error function taking the array of parameters, calculating
-        the Gaussian sum, and then taking the difference from the measured
-        spectra.
-
-        Prevents negative parameters by returning an array of very high error
-        when getting an negative parameter
-        """
-        if min(p) > 0:
-            return gaussian_sum(x, *p) - y
-        else:
-            return np.full((len(y),), 100, dtype=np.float64)
-
-    # Deconvoluted amide I band frequencies for proteins in water
-    clist = [1694, 1691, 1687, 1676, 1672, 1660, 1656, 1650, 1642, 1638, 1634,
-             1627, 1621]
-    # Gets list of relevant heights corresponding to clist freqs
-    hlist = guess_heights(df, col, clist)
-
-    # creates a list of peak widths to use in fitting
-    wlist = [5 for i in clist]
-
-    # creates a tuple, e.g. [(0.012, 1700, 5), (0.032, 1688, 5), ...]
-    tmp = list(zip(hlist, clist, wlist))
-
-    # print('zipped list of hlist, clist, wlist')
-    # print(tmp)
-
-    # unpacks the tmp nested list/tuple into a 1-D array
-    guess = np.array([item for sublist in tmp for item in sublist])
-    # print('guess np.array from zipped list')
-    # print(guess)
-    optim, cov, infodict, mesg, ier = optimize.leastsq(
-        errfunc, guess, args=(data[:, 0], data[:, 1]), full_output=True)
-    xdata = data[:, 0]
-    ydata = gaussian_sum(data[:, 0], *optim)
-    gausslist = gaussian_list(data[:, 0], *optim)
-    resid = infodict['fvec']
-    ss_err = (resid**2).sum()
-    ss_tot = ((data[:, 1] - data[:, 1].mean())**2).sum()
-    rsquared = 1 - (ss_err/ss_tot)
-    optim = list(optim)
-    heights = optim[0::3]
-    centers = optim[1::3]
-    widths = optim[2::3]
-    areas = []
-    for a, b, c in zip(heights, centers, widths):
-        area = gaussian_integral(a, c)
-        areas.append(area)
-    return xdata, ydata, gausslist, resid, rsquared, centers, areas
-
-
-def gaussian_least_squares(df, col, freq='freq', peaks=yang_h20_2015,
+def gaussian_least_squares(df, col, peaks=yang_h20_2015,
                            peak_width=5, params=dict()):
 
     def fun(p, x, y):
         """ Minimizing across parameter space p, for a given range, x"""
         return gaussian_sum(x, *p) - y
 
-    data = np.array(pd.concat([df[freq], df[col]], axis=1))
+    data = np.array(pd.concat([df.iloc[:,0], df[col]], axis=1))
     heights = guess_heights(df, col, peaks['means'], gain=1.0)
     width = peak_width
     lb = list()
@@ -296,7 +198,7 @@ def gaussian_least_squares(df, col, freq='freq', peaks=yang_h20_2015,
                                    heights):
         lb.extend([0, bound[0], 0])
         ubh = np.inf if height <= 0 else height
-        ub.extend([ubh, bound[1], peak_width*4])
+        ub.extend([ubh, bound[1], peak_width*1])
         guess.extend([height*0.95, mean, peak_width])
 
     args = [fun, np.array(guess)]
@@ -314,7 +216,7 @@ def gaussian_least_squares(df, col, freq='freq', peaks=yang_h20_2015,
 
 
 def gaussian_minimize(
-        df, col, freq='freq', peaks=yang_h20_2015, peak_width=5,
+        df, col, peaks=yang_h20_2015, peak_width=5,
         params={'method': 'L-BFGS-B'}):
     """
     Gradient based minimization implementation of the FTIR peak fitting
@@ -384,9 +286,9 @@ def gaussian_minimize(
         """
         return np.sum((gaussian_sum(x, *p) - y)**2)
 
-    data = np.array(pd.concat([df[freq], df[col]], axis=1))
+    data = np.array(pd.concat([df.iloc[:,0], df[col]], axis=1))
     heights = guess_heights(df, col, peaks['means'], gain=1.0)
-    width = peak_width*2
+    width = peak_width*1
     bounds = list()
     guess = list()
 
@@ -395,7 +297,7 @@ def gaussian_minimize(
                                    heights):
         bounds.append((0, height))
         bounds.append(bound)
-        bounds.append((0, width*2))
+        bounds.append((0, width))
         guess.append(height*0.95)
         guess.append(mean)
         guess.append(peak_width)
@@ -415,7 +317,7 @@ def gaussian_minimize(
 
 
 def gaussian_differential_evolution(
-        df, col, freq='freq', peaks=yang_h20_2015, peak_width=5,
+        df, col, peaks=yang_h20_2015, peak_width=5,
         params=dict()):
     """
     Differential evolution minimization implementation of the FTIR peak fitting
@@ -491,7 +393,7 @@ def gaussian_differential_evolution(
         """
         return np.sum((gaussian_sum(x, *p) - y)**2)
 
-    data = np.array(pd.concat([df[freq], df[col]], axis=1))
+    data = np.array(pd.concat([df.iloc[:,0], df[col]], axis=1))
     heights = guess_heights(df, col, peaks['means'], gain=1.0)
     width = peak_width
     bounds = list()
@@ -543,9 +445,9 @@ def guess_heights(df, col, center_list, gain=0.95):
     """
     heights = []
     freq_map = {}
-    for i in df.freq:
+    for i in df.iloc[:,0]:
         j = math.floor(i)
-        freq_map[j] = float(df[col].get(df.freq == i))
+        freq_map[j] = float(df[col].get(df.iloc[:,0] == i))
     for i in center_list:
         height = freq_map[i]
         heights.append(gain*height)
@@ -648,7 +550,7 @@ def create_fit_plots(raw_df, col, peak_list):
     fig = plt.figure(figsize=(8, 6))
     ax = fig.add_subplot(211)
 
-    xdata = raw_df['freq']
+    xdata = raw_df.iloc[:,0]
     y_fit = sum(peak_list)
     ax.plot(xdata, raw_df[col], label='$2^{nd}$ derivative')
     ax.plot(xdata, y_fit, label='Model fit')
